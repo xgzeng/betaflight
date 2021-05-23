@@ -41,6 +41,7 @@
 #include "drivers/rangefinder/rangefinder.h"
 #include "drivers/rangefinder/rangefinder_hcsr04.h"
 #include "drivers/rangefinder/rangefinder_lidartf.h"
+#include "drivers/rangefinder/rangefinder_vl53l0.h"
 #include "drivers/time.h"
 
 #include "fc/runtime_config.h"
@@ -115,7 +116,11 @@ static bool rangefinderDetect(rangefinderDev_t * dev, uint8_t rangefinderHardwar
 
         case RANGEFINDER_TF02:
 #if defined(USE_RANGEFINDER_TF)
-            if (lidarTF02Detect(dev)) {
+            // if (lidarTF02Detect(dev)) {
+            //     rangefinderHardware = RANGEFINDER_TF02;
+            //     rescheduleTask(TASK_RANGEFINDER, TASK_PERIOD_MS(RANGEFINDER_TF_TASK_PERIOD_MS));
+            // }
+            if (lidarVL53Detect(dev)) {
                 rangefinderHardware = RANGEFINDER_TF02;
                 rescheduleTask(TASK_RANGEFINDER, TASK_PERIOD_MS(RANGEFINDER_TF_TASK_PERIOD_MS));
             }
