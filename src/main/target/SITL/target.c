@@ -193,9 +193,9 @@ static void* udpThread(void* data) {
 static void* tcpThread(void* data) {
     UNUSED(data);
 
-    dyad_init();
-    dyad_setTickInterval(0.2f);
-    dyad_setUpdateTimeout(0.5f);
+    // dyad_init();
+    // dyad_setTickInterval(0.2f);
+    // dyad_setUpdateTimeout(0.5f);
 
     while (workerRunning) {
         dyad_update();
@@ -224,6 +224,10 @@ void systemInit(void) {
         printf("Create mainLoopLock error!\n");
         exit(1);
     }
+
+    dyad_init();
+    dyad_setTickInterval(0.2f);
+    dyad_setUpdateTimeout(0.5f);
 
     ret = pthread_create(&tcpWorker, NULL, tcpThread, NULL);
     if (ret != 0) {
