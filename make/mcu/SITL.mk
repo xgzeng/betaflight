@@ -66,4 +66,7 @@ OPTIMISE_SPEED      := -Ofast
 OPTIMISE_SIZE       := -Os
 
 LTO_FLAGS           := $(OPTIMISATION_BASE) $(OPTIMISE_SPEED)
+else
+CFLAGS              += -fsanitize=address 
+LD_FLAGS            += -fsanitize=address 
 endif
