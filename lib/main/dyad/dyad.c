@@ -41,6 +41,7 @@
 #include <signal.h>
 #include <errno.h>
 #include <limits.h>
+#include <pthread.h>
 
 #include "dyad.h"
 
@@ -283,6 +284,7 @@ typedef struct {
 
 
 struct dyad_Stream {
+  pthread_mutex_t streamLock;
   int state, flags;
   dyad_Socket sockfd;
   char *address;
@@ -411,6 +413,7 @@ static void stream_destroy(dyad_Stream *stream) {
   *next = stream->next;
   dyad_streamCount--;
   /* Destroy and free */
+  pthread_mutex_destroy(&stream->streamLock);
   vec_deinit(&stream->listeners);
   vec_deinit(&stream->lineBuffer);
   vec_deinit(&stream->writeBuffer);
@@ -693,6 +696,7 @@ void dyad_update(void) {
 
   stream = dyad_streams;
   while (stream) {
+    pthread_mutex_lock(&stream->streamLock);
     switch (stream->state) {
       case DYAD_STATE_CONNECTED:
         select_add(&dyad_selectSet, SELECT_READ, stream->sockfd);
@@ -713,7 +717,9 @@ void dyad_update(void) {
         select_add(&dyad_selectSet, SELECT_READ, stream->sockfd);
         break;
     }
-    stream = stream->next;
+    dyad_Stream* next = stream->next;
+    pthread_mutex_unlock(&stream->streamLock);
+    stream = next;
   }
 
   /* Init timeout value and do select */
@@ -738,6 +744,8 @@ void dyad_update(void) {
   /* Handle streams */
   stream = dyad_streams;
   while (stream) {
+    pthread_mutex_lock(&stream->streamLock);
+
     switch (stream->state) {
 
       case DYAD_STATE_CONNECTED:
@@ -796,7 +804,9 @@ connectFailed:
       stream_flushWriteBuffer(stream);
     }
 
-    stream = stream->next;
+    dyad_Stream* next = stream->next;
+    pthread_mutex_unlock(&stream->streamLock);
+    stream = next;
   }
 }
 
@@ -876,6 +886,15 @@ dyad_PanicCallback dyad_atPanic(dyad_PanicCallback func) {
 dyad_Stream *dyad_newStream(void) {
   dyad_Stream *stream = dyad_realloc(NULL, sizeof(*stream));
   memset(stream, 0, sizeof(*stream));
+
+  pthread_mutexattr_t mutex_attr;
+  pthread_mutexattr_init(&mutex_attr);
+  pthread_mutexattr_settype(&mutex_attr, PTHREAD_MUTEX_RECURSIVE);
+  if (pthread_mutex_init(&stream->streamLock, &mutex_attr) != 0) {
+    fprintf(stderr, "stream mutex init failed - %d\n", errno);
+    return 0;
+  }
+
   stream->state = DYAD_STATE_CLOSED;
   stream->sockfd = INVALID_SOCKET;
   stream->lastActivity = dyad_getTime();
@@ -890,11 +909,13 @@ dyad_Stream *dyad_newStream(void) {
 void dyad_addListener(
   dyad_Stream *stream, int event, dyad_Callback callback, void *udata
 ) {
+  pthread_mutex_lock(&stream->streamLock);
   Listener listener;
   listener.event = event;
   listener.callback = callback;
   listener.udata = udata;
   vec_push(&stream->listeners, listener);
+  pthread_mutex_unlock(&stream->streamLock);
 }
 
 
@@ -926,6 +947,8 @@ void dyad_removeAllListeners(dyad_Stream *stream, int event) {
 
 
 void dyad_close(dyad_Stream *stream) {
+  pthread_mutex_lock(&stream->streamLock);
+
   dyad_Event e;
   if (stream->state == DYAD_STATE_CLOSED) return;
   stream->state = DYAD_STATE_CLOSED;
@@ -941,6 +964,8 @@ void dyad_close(dyad_Stream *stream) {
   /* Clear buffers */
   vec_clear(&stream->lineBuffer);
   vec_clear(&stream->writeBuffer);
+
+  pthread_mutex_unlock(&stream->streamLock);
 }
 
 
@@ -961,6 +986,8 @@ int dyad_listenEx(
   int err, optval;
   char buf[64];
   dyad_Event e;
+
+  pthread_mutex_lock(&stream->streamLock);
 
   /* Get addrinfo */
   memset(&hints, 0, sizeof(hints));
@@ -1001,9 +1028,13 @@ int dyad_listenEx(
   e.msg = "socket is listening";
   stream_emitEvent(stream, &e);
   freeaddrinfo(ai);
+
+  pthread_mutex_unlock(&stream->streamLock);
   return 0;
-  fail:
+
+fail:
   if (ai) freeaddrinfo(ai);
+  pthread_mutex_unlock(&stream->streamLock);
   return -1;
 }
 
@@ -1043,11 +1074,13 @@ fail:
 
 
 void dyad_write(dyad_Stream *stream, const void *data, int size) {
+  pthread_mutex_lock(&stream->streamLock);
   const char *p = data;
   while (size--) {
     vec_push(&stream->writeBuffer, *p++);
   }
   stream->flags |= DYAD_FLAG_WRITTEN;
+  pthread_mutex_unlock(&stream->streamLock);
 }
 
 
